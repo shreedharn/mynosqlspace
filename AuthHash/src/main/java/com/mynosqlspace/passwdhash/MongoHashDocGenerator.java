@@ -20,6 +20,12 @@ import java.util.logging.Logger;
 public class MongoHashDocGenerator implements Runnable {
     final static int THREAD_POOL_SIZE = 5;
     final static int OBJECTS_PER_INSERT = 20000;
+    private static final String FIELD_TXT = "txt";
+    private static final String FIELD_MD5 = "MD5";
+    private static final String FIELD_SHA1 = "SHA1";
+    private static final String FIELD_SHA256 = "SHA256";
+
+
     final ThreadPoolExecutor executorService;
     final static Logger logger = Logger.getLogger(MongoHashDocGenerator.class.getName());
     final LinkedBlockingQueue<String> passwordEntryQueue = new LinkedBlockingQueue<String>();
@@ -63,16 +69,16 @@ public class MongoHashDocGenerator implements Runnable {
                 byte[] bytesOfMessage = hashCalc.getUtF8BytesOfText(password);
                 // A simple place holder object
                 PasswordDocument passwordDocument = new PasswordDocument();
-                passwordDocument.txt = password;
-                passwordDocument.md5dig = hashCalc.getDigestString(bytesOfMessage, "MD5");
-                passwordDocument.sha1dig = hashCalc.getDigestString(bytesOfMessage, "SHA1");
-                passwordDocument.sha256dig = hashCalc.getDigestString(bytesOfMessage, "SHA-256");
+                passwordDocument.passwd = password;
+                passwordDocument.md5dig = hashCalc.getDigestString(bytesOfMessage, HashCalculator.HASH_MD5);
+                passwordDocument.sha1dig = hashCalc.getDigestString(bytesOfMessage, HashCalculator.HASH_SHA1);
+                passwordDocument.sha256dig = hashCalc.getDigestString(bytesOfMessage, HashCalculator.HASH_SHA256);
                 DBObject dbObject = null;
                 dbObject = new BasicDBObject()
-                        .append("word",passwordDocument.txt)
-                        .append("md5",passwordDocument.md5dig)
-                        .append("SHA1",passwordDocument.sha1dig)
-                        .append("SHA256",passwordDocument.sha256dig);
+                        .append(FIELD_TXT,passwordDocument.passwd)
+                        .append(FIELD_MD5,passwordDocument.md5dig)
+                        .append(FIELD_SHA1,passwordDocument.sha1dig)
+                        .append(FIELD_SHA256,passwordDocument.sha256dig);
                 dbObjectList.add(dbObject);
 
                 // when variable i reaches OBJECTS_PER_INSERT. do a mongo insert
@@ -149,12 +155,12 @@ public class MongoHashDocGenerator implements Runnable {
 
     }
     final class PasswordDocument {
-        String txt;
+        String passwd;
         String md5dig;
         String sha1dig;
         String sha256dig;
         public String toString() {
-            return "** Original String: "+txt+ "\n" +
+            return "** Original String: "+ passwd + "\n" +
                     "MD5: " + md5dig + "\n"+
                     "SHA1: " + sha1dig + "\n"+
                     "SHA256: " + sha256dig;
