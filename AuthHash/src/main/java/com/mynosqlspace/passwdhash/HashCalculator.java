@@ -10,9 +10,7 @@ import java.util.Formatter;
  * @author: Shreedhar Natarajan
  */
 public class HashCalculator {
-    public static final String HASH_MD5 = "MD5";
-    public static final String HASH_SHA1 = "SHA1";
-    public static final String HASH_SHA256 = "SHA256";
+    public static final String HASH_SHA512 = "SHA-512";
     private static final String stringFormat = "%02x";
 
     private String byteArray2Hex(final byte[] hash) {

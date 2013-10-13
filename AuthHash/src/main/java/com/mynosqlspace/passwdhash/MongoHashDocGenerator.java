@@ -13,34 +13,36 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 
 /**
- * This class populates the mongo db with documents of word hashes for a set of passwords read from a text file
+ * This class populates the mongo db with documents containing set of passwords read from a text file and its equivalent
+ * SHA512 hash
  * @author : Shreedhar Natarajan
  * Date: 9/29/13
  */
 public class MongoHashDocGenerator implements Runnable {
     final static int THREAD_POOL_SIZE = 5;
     final static int OBJECTS_PER_INSERT = 20000;
-    private static final String FIELD_TXT = "txt";
-    private static final String FIELD_MD5 = "MD5";
-    private static final String FIELD_SHA1 = "SHA1";
-    private static final String FIELD_SHA256 = "SHA256";
-
-
-    final ThreadPoolExecutor executorService;
     final static Logger logger = Logger.getLogger(MongoHashDocGenerator.class.getName());
-    final LinkedBlockingQueue<String> passwordEntryQueue = new LinkedBlockingQueue<String>();
+    private static final String FIELD_TXT = "txt";
+    private static final String FIELD_SHA512 = "SHA512";
+    private static final String MONGO_DB_NAME = "Password";
+    private static final String MONGO_COLLECTION_NAME = "PasswordDocs";
+    final ThreadPoolExecutor executorService;
+    final LinkedBlockingQueue<String> passwordEntries = new LinkedBlockingQueue<String>();
     final DB database;
     final DBCollection collection;
 
 
-    public MongoHashDocGenerator() throws UnknownHostException{
-        executorService =  (ThreadPoolExecutor)Executors.newFixedThreadPool(MongoHashDocGenerator.THREAD_POOL_SIZE);
+    public MongoHashDocGenerator() throws UnknownHostException {
+        executorService = (ThreadPoolExecutor) Executors.newFixedThreadPool(MongoHashDocGenerator.THREAD_POOL_SIZE);
         MongoClient client = new MongoClient();
-        database = client.getDB("Password");
-        collection= database.getCollection("PasswordDocs");
+        database = client.getDB(MONGO_DB_NAME);
+        collection = database.getCollection(MONGO_COLLECTION_NAME);
         logger.setLevel(Level.INFO);
 
     }
+
+  
+
     void shutdownAndAwaitTermination(ExecutorService pool) {
         pool.shutdown(); // Disable new tasks from being submitted
         try {
@@ -59,26 +61,24 @@ public class MongoHashDocGenerator implements Runnable {
             Thread.currentThread().interrupt();
         }
     }
+
     public void run() {
         String password = null;
         final List<DBObject> dbObjectList = new ArrayList<DBObject>(OBJECTS_PER_INSERT);
         final HashCalculator hashCalc = new HashCalculator();
         try {
-            password = passwordEntryQueue.poll();
+            password = passwordEntries.poll();
             for (int i = 0; password != null; i++) {
                 byte[] bytesOfMessage = hashCalc.getUtF8BytesOfText(password);
                 // A simple place holder object
                 PasswordDocument passwordDocument = new PasswordDocument();
                 passwordDocument.passwd = password;
-                passwordDocument.md5dig = hashCalc.getDigestString(bytesOfMessage, HashCalculator.HASH_MD5);
-                passwordDocument.sha1dig = hashCalc.getDigestString(bytesOfMessage, HashCalculator.HASH_SHA1);
-                passwordDocument.sha256dig = hashCalc.getDigestString(bytesOfMessage, HashCalculator.HASH_SHA256);
+                //32-bytes digest size
+                passwordDocument.sha512dig = hashCalc.getDigestString(bytesOfMessage, HashCalculator.HASH_SHA512);
                 DBObject dbObject = null;
                 dbObject = new BasicDBObject()
-                        .append(FIELD_TXT,passwordDocument.passwd)
-                        .append(FIELD_MD5,passwordDocument.md5dig)
-                        .append(FIELD_SHA1,passwordDocument.sha1dig)
-                        .append(FIELD_SHA256,passwordDocument.sha256dig);
+                        .append(FIELD_TXT, passwordDocument.passwd)
+                        .append(FIELD_SHA512, passwordDocument.sha512dig);
                 dbObjectList.add(dbObject);
 
                 // when variable i reaches OBJECTS_PER_INSERT. do a mongo insert
@@ -87,9 +87,9 @@ public class MongoHashDocGenerator implements Runnable {
                     dbObjectList.clear();
                     i = 0; // reset i;
                 }
-                password = passwordEntryQueue.poll();
+                password = passwordEntries.poll();
             }
-            if (dbObjectList.size() > 0 ) {
+            if (dbObjectList.size() > 0) {
                 inserIntoMongodb(dbObjectList);
                 dbObjectList.clear();
             }
@@ -97,25 +97,35 @@ public class MongoHashDocGenerator implements Runnable {
             logger.log(Level.SEVERE, ex.getMessage(), ex);
         }
     }
-    public synchronized void inserIntoMongodb(final List<DBObject> dbObjectList){
+
+    public synchronized void inserIntoMongodb(final List<DBObject> dbObjectList) {
         collection.insert(dbObjectList.toArray(new DBObject[0]));
     }
-    public void readTextFileName(String fileName) throws IOException {
+
+    public void readTextFile(String fileName) throws IOException {
         FileReader fr = null;
         BufferedReader br = null;
         long startMillis = 0;
         long endMillis = 0;
 
+
         try {
             fr = new FileReader(fileName);
             br = new BufferedReader(fr);
-            String string;
+            String line;
+            System.out.println("Press any key to continue ...");
+            System.in.read();
+            System.out.println("Reading the file ...");
             startMillis = System.currentTimeMillis();
-            for (string = br.readLine(); string != null; string = br.readLine()) {
-                passwordEntryQueue.offer(string);
+            for (line = br.readLine(); line != null; line = br.readLine()) {
+                passwordEntries.add(line);
             }
             endMillis = System.currentTimeMillis();
-            logger.info("File read in " + (endMillis - startMillis));
+            System.out.println("File read in " + (endMillis - startMillis) + " ms");
+            System.out.println("Press any key to continue ...");
+            System.in.read();
+            System.out.println("Processing ...");
+
         } finally {
             if (br != null)
                 br.close();
@@ -125,7 +135,7 @@ public class MongoHashDocGenerator implements Runnable {
 
 
     }
-    public static void main(String[] args) {
+  public static void main(String[] args) {
         try {
             MongoHashDocGenerator mongoHashDocGenerator = new MongoHashDocGenerator();
             long startMillis = 0;
@@ -135,13 +145,13 @@ public class MongoHashDocGenerator implements Runnable {
                 return;
             }
 
-            mongoHashDocGenerator.readTextFileName(args[0]);
-            logger.info("Total # of password to process " + mongoHashDocGenerator.passwordEntryQueue.size());
+            mongoHashDocGenerator.readTextFile(args[0]);
+            System.out.println("Total # of password to process " + mongoHashDocGenerator.passwordEntries.size());
             startMillis = System.currentTimeMillis();
-            while (!mongoHashDocGenerator.passwordEntryQueue.isEmpty()){
-                if (mongoHashDocGenerator.executorService.getActiveCount() < MongoHashDocGenerator.THREAD_POOL_SIZE )
+            while (!mongoHashDocGenerator.passwordEntries.isEmpty()) {
+                if (mongoHashDocGenerator.executorService.getActiveCount() < MongoHashDocGenerator.THREAD_POOL_SIZE)
                     mongoHashDocGenerator.executorService.execute(mongoHashDocGenerator);
-                else  {
+                else {
                     Thread.sleep(500);
                 }
             }
@@ -154,16 +164,14 @@ public class MongoHashDocGenerator implements Runnable {
         }
 
     }
+
     final class PasswordDocument {
         String passwd;
-        String md5dig;
-        String sha1dig;
-        String sha256dig;
+        String sha512dig;
+
         public String toString() {
-            return "** Original String: "+ passwd + "\n" +
-                    "MD5: " + md5dig + "\n"+
-                    "SHA1: " + sha1dig + "\n"+
-                    "SHA256: " + sha256dig;
+            return "** Original String: " + passwd + "\n" +
+                    "SHA512: " + sha512dig;
         }
     }
 }
